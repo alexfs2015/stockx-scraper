@@ -6,9 +6,8 @@ from multiprocessing import Pool
 from os import system
 from colorama import Fore, init
 from bs4 import BeautifulSoup
-import sqlite3
-from sqlite3 import Error
 from time import sleep
+import sqlite3
 
 def main(url):
     proxy = my_proxy("127.0.0.1", 9050)
@@ -58,46 +57,69 @@ def scrape_name_url(html):
     url = []
     for i in link:
         url.append(i.find('a').get('href'))
-    split_for_db(modelo, url)
-    
-        
-
-def connect_db():
-    try:
-        global con
-        con = sqlite3.connect('database.db')
-        print(Fore.RESET + "[" + Fore.MAGENTA + "*" + Fore.RESET + "] Conectando a la base de datos...")
-        table_db()
-    except Error:
-        print(Error)
-
-def table_db():
-    global cursorObj
-    cursorObj = con.cursor()
-    try:
-        cursorObj.execute("CREATE TABLE sneakers(id integer PRIMARY KEY, marca text, modelo text, url text)")
-        con.commit()
-        print(Fore.RESET + "[" + Fore.MAGENTA + "*" + Fore.RESET + "] Creando base de datos...")
-    except Error:
-        print(Fore.RESET + "[" + Fore.MAGENTA + "*" + Fore.RESET + "] Base de datos OK...")
-
-def insert_db(marca, modelo, url):
-    argumentos = ("NULL", marca, modelo, url)
-    cursorObj.execute('''INSERT INTO sneakers(id, marca, modelo, url) VALUES(?, ?, ?, ?)''', argumentos)
-    con.commit()
-
-def split_for_db(modelo, url):
-    for i in range(len(modelo)):
-        marca = str(modelo[i].split(" ")[0])
-        insert_db(marca, modelo, url)
-    print(marca)
     print(modelo)
     print(url)
-    
 
+    for i in range(len(modelo)):
+        scrape_image(url[i],modelo[i])
+
+def scrape_image(url, modelo):
+    url = "https://stockx.com/" + url
+    proxy = my_proxy("127.0.0.1", 9050)
+    proxy.get(url)
+    html = proxy.page_source
+
+    soup = BeautifulSoup(html, 'lxml')
+    if soup.find("div", {"class":"rc-slider-handle"}):
+        insert_in_sql_slider(modelo)
+        get_url_slider(url, html)
+    else:
+        insert_in_sql_no_slider(modelo)
+
+def insert_in_sql_no_slider(modelo):
+    marca = str(modelo.split(" ")[0])
+    modelo = str(modelo)
+    entities = (marca, modelo, 0)
+
+    con = sqlite3.connect('database.db')
+    cursorObj = con.cursor()
+    cursorObj.execute('''INSERT INTO sneakers(Marca, Modelo, Slider) VALUES(?, ?, ?)''', entities)    
+    con.commit()
+
+def insert_in_sql_slider(modelo):
+    marca = str(modelo.split(" ")[0])
+    modelo = str(modelo)
+    entities = (marca, modelo, 1)
+
+    con = sqlite3.connect('database.db')
+    cursorObj = con.cursor()
+    cursorObj.execute('''INSERT INTO sneakers(Marca, Modelo, Slider) VALUES(?, ?, ?)''', entities)    
+    con.commit()
+
+def get_url_slider(url, html):
+    soup = BeautifulSoup(html, 'lxml')
+    image_src = soup.find("img", {"data-testid":"product-detail-image"})['src']
+    
+    image_src = image_src[:-60]
+    for i in range(100):
+        image_src = image_src[:-5]
+        image_src = image_src + str(i).zfill(2)
+        
+        proxy = save_image("127.0.0.1", 9050)
+        proxy.get(image_src)
+        
+def save_image(PROXY_HOST,PROXY_PORT):
+    fp = webdriver.FirefoxProfile()
+    # Direct = 0, Manual = 1, PAC = 2, AUTODETECT = 4, SYSTEM = 5
+    fp.set_preference("network.proxy.type", 1)
+    fp.set_preference("network.proxy.socks",PROXY_HOST)
+    fp.set_preference("network.proxy.socks_port",int(PROXY_PORT))
+    fp.update_preferences()
+    options = Options()
+    options.headless = True
+    return webdriver.Firefox(options=options, firefox_profile=fp)
 
 if __name__ == "__main__":
-    connect_db()
     run_tor()
     read_file()
     with Pool(5) as p:
